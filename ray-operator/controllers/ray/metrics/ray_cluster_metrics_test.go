@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -94,6 +95,106 @@ func TestRayClusterInfo(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestScheduleRayClusterMetricForCleanup tests scheduling a metric for cleanup
+func TestScheduleRayClusterMetricForCleanup(t *testing.T) {
+	ctx := context.Background()
+	k8sScheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(k8sScheme))
+
+	client := fake.NewClientBuilder().WithScheme(k8sScheme).Build()
+	manager := NewRayClusterMetricsManager(ctx, client)
+
+	// Schedule a metric for cleanup
+	manager.ScheduleRayClusterMetricForCleanup("test-cluster", "test-namespace")
+
+	// Verify the cleanup queue has one item
+	assert.Len(t, manager.cleanupQueue, 1)
+	assert.Equal(t, "test-cluster", manager.cleanupQueue[0].Name)
+	assert.Equal(t, "test-namespace", manager.cleanupQueue[0].Namespace)
+	assert.WithinDuration(t, time.Now().Add(5*time.Minute), manager.cleanupQueue[0].DeleteAt, 1*time.Second)
+}
+
+// TestCleanupExpiredRayClusterMetrics tests cleaning up expired metrics
+func TestCleanupExpiredRayClusterMetrics(t *testing.T) {
+	ctx := context.Background()
+	k8sScheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(k8sScheme))
+
+	client := fake.NewClientBuilder().WithScheme(k8sScheme).Build()
+	manager := NewRayClusterMetricsManager(ctx, client)
+
+	// Set up a metric
+	manager.ObserveRayClusterProvisionedDuration("expired-cluster", "test-namespace", 123.45)
+
+	// Add an expired item to the cleanup queue
+	manager.queueMutex.Lock()
+	manager.cleanupQueue = append(manager.cleanupQueue, RayClusterMetricCleanupItem{
+		Name:      "expired-cluster",
+		Namespace: "test-namespace",
+		DeleteAt:  time.Now().Add(-1 * time.Minute), // Expired 1 minute ago
+	})
+	manager.queueMutex.Unlock()
+
+	// Clean up expired metrics
+	manager.cleanupExpiredRayClusterMetrics()
+
+	// Verify the metric was deleted by checking the registry
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(manager)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", nil)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	handler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
+	handler.ServeHTTP(recorder, req)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	body := recorder.Body.String()
+	assert.NotContains(t, body, `kuberay_cluster_provisioned_duration_seconds{name="expired-cluster",namespace="test-namespace"}`)
+
+	// Verify the cleanup queue is empty
+	assert.Empty(t, manager.cleanupQueue)
+}
+
+// TestCleanupLoop tests the background cleanup loop
+func TestCleanupLoop(t *testing.T) {
+	// Create a context that we can cancel
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	k8sScheme := runtime.NewScheme()
+	require.NoError(t, rayv1.AddToScheme(k8sScheme))
+
+	client := fake.NewClientBuilder().WithScheme(k8sScheme).Build()
+	manager := NewRayClusterMetricsManager(ctx, client)
+
+	// Set up a metric
+	manager.ObserveRayClusterProvisionedDuration("test-cluster", "test-namespace", 123.45)
+
+	// Add an item to the cleanup queue with a very short TTL
+	manager.queueMutex.Lock()
+	manager.metricTTL = 1 * time.Second // Set TTL to 1 second for testing
+	manager.cleanupQueue = append(manager.cleanupQueue, RayClusterMetricCleanupItem{
+		Name:      "test-cluster",
+		Namespace: "test-namespace",
+		DeleteAt:  time.Now().Add(manager.metricTTL),
+	})
+	manager.queueMutex.Unlock()
+
+	// Wait for the cleanup loop to run and process the item
+	time.Sleep(2 * time.Second)
+
+	// Verify the metric was deleted by checking the registry
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(manager)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", nil)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	handler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
+	handler.ServeHTTP(recorder, req)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	body := recorder.Body.String()
+	assert.NotContains(t, body, `kuberay_cluster_provisioned_duration_seconds{name="test-cluster",namespace="test-namespace"}`)
 }
 
 func TestRayClusterConditionProvisioned(t *testing.T) {

@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"context"
+	"sync"
+	"time"
 	"strconv"
 
 	"github.com/go-logr/logr"
@@ -19,6 +21,13 @@ type RayClusterMetricsObserver interface {
 	ObserveRayClusterProvisionedDuration(name, namespace string, duration float64)
 }
 
+// RayClusterMetricCleanupItem represents an item in the RayCluster metric cleanup queue
+ type RayClusterMetricCleanupItem struct {
+	Name      string
+	Namespace string
+	DeleteAt  time.Time
+}
+
 // RayClusterMetricsManager implements the prometheus.Collector and RayClusterMetricsObserver interface to collect ray cluster metrics.
 type RayClusterMetricsManager struct {
 	rayClusterProvisionedDurationSeconds *prometheus.GaugeVec
@@ -26,9 +35,14 @@ type RayClusterMetricsManager struct {
 	rayClusterConditionProvisioned       *prometheus.Desc
 	client                               client.Client
 	log                                  logr.Logger
+
+	// Cleanup queue and related fields specific to RayCluster metrics
+	cleanupQueue []RayClusterMetricCleanupItem
+	queueMutex   sync.Mutex
+	metricTTL    time.Duration
 }
 
-// NewRayClusterMetricsManager creates a new RayClusterManager instance.
+// NewRayClusterMetricsManager creates a new RayClusterMetricsManager instance.
 func NewRayClusterMetricsManager(ctx context.Context, client client.Client) *RayClusterMetricsManager {
 	manager := &RayClusterMetricsManager{
 		rayClusterProvisionedDurationSeconds: prometheus.NewGaugeVec(
@@ -56,9 +70,14 @@ func NewRayClusterMetricsManager(ctx context.Context, client client.Client) *Ray
 			[]string{"name", "namespace", "condition"},
 			nil,
 		),
-		client: client,
-		log:    ctrl.LoggerFrom(ctx),
+		client:       client,
+		log:          ctrl.LoggerFrom(ctx),
+		cleanupQueue: make([]RayClusterMetricCleanupItem, 0),
+		metricTTL:    5 * time.Minute, // Keep metrics for 5 minutes
 	}
+	
+	// Start the cleanup goroutine
+	go manager.startRayClusterCleanupLoop(ctx)
 	return manager
 }
 
@@ -85,8 +104,63 @@ func (r *RayClusterMetricsManager) Collect(ch chan<- prometheus.Metric) {
 	}
 }
 
+// ObserveRayClusterProvisionedDuration records the provisioned duration of a RayCluster
 func (r *RayClusterMetricsManager) ObserveRayClusterProvisionedDuration(name, namespace string, duration float64) {
 	r.rayClusterProvisionedDurationSeconds.WithLabelValues(name, namespace).Set(duration)
+}
+
+// ScheduleRayClusterMetricForCleanup schedules a RayCluster metric for cleanup after the TTL
+func (r *RayClusterMetricsManager) ScheduleRayClusterMetricForCleanup(name, namespace string) {
+	r.queueMutex.Lock()
+	defer r.queueMutex.Unlock()
+
+	// Add to cleanup queue
+	item := RayClusterMetricCleanupItem{
+		Name:      name,
+		Namespace: namespace,
+		DeleteAt:  time.Now().Add(r.metricTTL),
+	}
+	r.cleanupQueue = append(r.cleanupQueue, item)
+	r.log.Info("Scheduled RayCluster metric for cleanup", "name", name, "namespace", namespace, "deleteAt", item.DeleteAt)
+}
+
+// startRayClusterCleanupLoop starts a loop to clean up expired RayCluster metrics
+func (r *RayClusterMetricsManager) startRayClusterCleanupLoop(ctx context.Context) {
+	// Check for expired metrics every minute
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			r.cleanupExpiredRayClusterMetrics()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// cleanupExpiredRayClusterMetrics removes RayCluster metrics that have expired
+func (r *RayClusterMetricsManager) cleanupExpiredRayClusterMetrics() {
+	r.queueMutex.Lock()
+	defer r.queueMutex.Unlock()
+
+	now := time.Now()
+	remainingItems := make([]RayClusterMetricCleanupItem, 0)
+
+	for _, item := range r.cleanupQueue {
+		if now.After(item.DeleteAt) {
+			// Remove expired metric
+			r.rayClusterProvisionedDurationSeconds.DeleteLabelValues(item.Name, item.Namespace)
+			r.log.Info("Cleaned up expired RayCluster metric", "name", item.Name, "namespace", item.Namespace)
+		} else {
+			// Keep non-expired items
+			remainingItems = append(remainingItems, item)
+		}
+	}
+
+	// Update queue
+	r.cleanupQueue = remainingItems
 }
 
 func (r *RayClusterMetricsManager) collectRayClusterInfo(cluster *rayv1.RayCluster, ch chan<- prometheus.Metric) {
