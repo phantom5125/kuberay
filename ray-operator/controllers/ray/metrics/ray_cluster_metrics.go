@@ -2,9 +2,9 @@ package metrics
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"time"
-	"strconv"
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
@@ -22,7 +22,7 @@ type RayClusterMetricsObserver interface {
 }
 
 // RayClusterMetricCleanupItem represents an item in the RayCluster metric cleanup queue
- type RayClusterMetricCleanupItem struct {
+type RayClusterMetricCleanupItem struct {
 	Name      string
 	Namespace string
 	DeleteAt  time.Time
@@ -75,7 +75,7 @@ func NewRayClusterMetricsManager(ctx context.Context, client client.Client) *Ray
 		cleanupQueue: make([]RayClusterMetricCleanupItem, 0),
 		metricTTL:    5 * time.Minute, // Keep metrics for 5 minutes
 	}
-	
+
 	// Start the cleanup goroutine
 	go manager.startRayClusterCleanupLoop(ctx)
 	return manager
@@ -151,7 +151,7 @@ func (r *RayClusterMetricsManager) cleanupExpiredRayClusterMetrics() {
 	for _, item := range r.cleanupQueue {
 		if now.After(item.DeleteAt) {
 			// Remove expired metric
-			r.rayClusterProvisionedDurationSeconds.DeleteLabelValues(item.Name, item.Namespace)
+			r.rayClusterProvisionedDurationSeconds.DeletePartialMatch(prometheus.Labels{"name": item.Name, "namespace": item.Namespace})
 			r.log.Info("Cleaned up expired RayCluster metric", "name", item.Name, "namespace", item.Namespace)
 		} else {
 			// Keep non-expired items
