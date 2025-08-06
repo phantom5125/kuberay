@@ -465,6 +465,10 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 		return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
 	}
 	emitRayJobMetrics(r.options.RayJobMetricsManager, rayJobInstance.Name, rayJobInstance.Namespace, originalRayJobInstance.Status, rayJobInstance.Status)
+	// Schedule metrics cleanup when job reaches terminal status
+	if !rayv1.IsJobDeploymentTerminal(originalRayJobInstance.Status.JobDeploymentStatus) && rayv1.IsJobDeploymentTerminal(rayJobInstance.Status.JobDeploymentStatus) {
+		r.options.RayJobMetricsManager.ScheduleRayJobMetricForCleanup(rayJobInstance.Name, rayJobInstance.Namespace)
+	}
 	return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, nil
 }
 

@@ -3,6 +3,8 @@ package metrics
 import (
 	"context"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
@@ -17,6 +19,13 @@ type RayJobMetricsObserver interface {
 	ObserveRayJobExecutionDuration(name, namespace string, jobDeploymentStatus rayv1.JobDeploymentStatus, retryCount int, duration float64)
 }
 
+// RayJobMetricCleanupItem represents an item in the RayJob metric cleanup queue
+ type RayJobMetricCleanupItem struct {
+	Name      string
+	Namespace string
+	DeleteAt  time.Time
+}
+
 // RayJobMetricsManager implements the prometheus.Collector and RayJobMetricsObserver interface to collect ray job metrics.
 type RayJobMetricsManager struct {
 	rayJobExecutionDurationSeconds *prometheus.GaugeVec
@@ -24,11 +33,16 @@ type RayJobMetricsManager struct {
 	rayJobDeploymentStatus         *prometheus.Desc
 	client                         client.Client
 	log                            logr.Logger
+
+	// Cleanup queue and related fields specific to RayJob metrics
+	cleanupQueue []RayJobMetricCleanupItem
+	queueMutex   sync.Mutex
+	metricTTL    time.Duration
 }
 
 // NewRayJobMetricsManager creates a new RayJobMetricsManager instance.
 func NewRayJobMetricsManager(ctx context.Context, client client.Client) *RayJobMetricsManager {
-	collector := &RayJobMetricsManager{
+	manager := &RayJobMetricsManager{
 		rayJobExecutionDurationSeconds: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "kuberay_job_execution_duration_seconds",
@@ -50,10 +64,15 @@ func NewRayJobMetricsManager(ctx context.Context, client client.Client) *RayJobM
 			[]string{"name", "namespace", "deployment_status"},
 			nil,
 		),
-		client: client,
-		log:    ctrl.LoggerFrom(ctx),
+		client:       client,
+		log:          ctrl.LoggerFrom(ctx),
+		cleanupQueue: make([]RayJobMetricCleanupItem, 0),
+		metricTTL:    5 * time.Minute, // Keep metrics for 5 minutes
 	}
-	return collector
+	
+	// Start the cleanup goroutine
+	go manager.startRayJobCleanupLoop(ctx)
+	return manager
 }
 
 // Describe implements prometheus.Collector interface Describe method.
@@ -82,6 +101,63 @@ func (r *RayJobMetricsManager) Collect(ch chan<- prometheus.Metric) {
 
 func (r *RayJobMetricsManager) ObserveRayJobExecutionDuration(name, namespace string, jobDeploymentStatus rayv1.JobDeploymentStatus, retryCount int, duration float64) {
 	r.rayJobExecutionDurationSeconds.WithLabelValues(name, namespace, string(jobDeploymentStatus), strconv.Itoa(retryCount)).Set(duration)
+}
+
+// ScheduleRayJobMetricForCleanup schedules a RayJob metric for cleanup after the TTL
+func (r *RayJobMetricsManager) ScheduleRayJobMetricForCleanup(name, namespace string) {
+	r.queueMutex.Lock()
+	defer r.queueMutex.Unlock()
+
+	// Add to cleanup queue
+	item := RayJobMetricCleanupItem{
+		Name:      name,
+		Namespace: namespace,
+		DeleteAt:  time.Now().Add(r.metricTTL),
+	}
+	r.cleanupQueue = append(r.cleanupQueue, item)
+	r.log.Info("Scheduled RayJob metric for cleanup", "name", name, "namespace", namespace, "deleteAt", item.DeleteAt)
+}
+
+// startRayJobCleanupLoop starts a loop to clean up expired RayJob metrics
+func (r *RayJobMetricsManager) startRayJobCleanupLoop(ctx context.Context) {
+	// Check for expired metrics every minute
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			r.cleanupExpiredRayJobMetrics()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// cleanupExpiredRayJobMetrics removes RayJob metrics that have expired
+func (r *RayJobMetricsManager) cleanupExpiredRayJobMetrics() {
+	r.queueMutex.Lock()
+	defer r.queueMutex.Unlock()
+
+	now := time.Now()
+	remainingItems := make([]RayJobMetricCleanupItem, 0)
+
+	for _, item := range r.cleanupQueue {
+		if now.After(item.DeleteAt) {
+			// Remove all metrics associated with this job
+			r.rayJobExecutionDurationSeconds.DeletePartialMatch(prometheus.Labels{
+				"name":      item.Name,
+				"namespace": item.Namespace,
+			})
+			r.log.Info("Cleaned up expired RayJob metrics", "name", item.Name, "namespace", item.Namespace)
+		} else {
+			// Keep non-expired items
+			remainingItems = append(remainingItems, item)
+		}
+	}
+
+	// Update queue
+	r.cleanupQueue = remainingItems
 }
 
 func (r *RayJobMetricsManager) collectRayJobInfo(rayJob *rayv1.RayJob, ch chan<- prometheus.Metric) {

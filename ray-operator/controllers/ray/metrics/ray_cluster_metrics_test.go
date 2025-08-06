@@ -156,8 +156,8 @@ func TestCleanupExpiredRayClusterMetrics(t *testing.T) {
 	assert.Empty(t, manager.cleanupQueue)
 }
 
-// TestCleanupLoop tests the background cleanup loop
-func TestCleanupLoop(t *testing.T) {
+// TestRayClusterCleanupLoop tests the background cleanup loop
+func TestRayClusterCleanupLoop(t *testing.T) {
 	// Create a context that we can cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
