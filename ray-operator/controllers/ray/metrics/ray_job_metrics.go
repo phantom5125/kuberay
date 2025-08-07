@@ -20,7 +20,7 @@ type RayJobMetricsObserver interface {
 }
 
 // RayJobMetricCleanupItem represents an item in the RayJob metric cleanup queue
- type RayJobMetricCleanupItem struct {
+type RayJobMetricCleanupItem struct {
 	Name      string
 	Namespace string
 	DeleteAt  time.Time
@@ -41,7 +41,7 @@ type RayJobMetricsManager struct {
 }
 
 // NewRayJobMetricsManager creates a new RayJobMetricsManager instance.
-func NewRayJobMetricsManager(ctx context.Context, client client.Client) *RayJobMetricsManager {
+func NewRayJobMetricsManager(ctx context.Context, client client.Client, metricsTTLSeconds int) *RayJobMetricsManager {
 	manager := &RayJobMetricsManager{
 		rayJobExecutionDurationSeconds: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
@@ -67,9 +67,9 @@ func NewRayJobMetricsManager(ctx context.Context, client client.Client) *RayJobM
 		client:       client,
 		log:          ctrl.LoggerFrom(ctx),
 		cleanupQueue: make([]RayJobMetricCleanupItem, 0),
-		metricTTL:    5 * time.Minute, // Keep metrics for 5 minutes
+		metricTTL:    time.Duration(metricsTTLSeconds) * time.Second,
 	}
-	
+
 	// Start the cleanup goroutine
 	go manager.startRayJobCleanupLoop(ctx)
 	return manager

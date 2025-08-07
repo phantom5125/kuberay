@@ -135,6 +135,9 @@ func (r *RayClusterReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 	if errors.IsNotFound(err) {
 		// Clear all related expectations
 		r.rayClusterScaleExpectation.Delete(instance.Name, instance.Namespace)
+		if r.options.RayClusterMetricsManager != nil {
+			r.options.RayClusterMetricsManager.ScheduleRayClusterMetricForCleanup(instance.Name, instance.Namespace)
+		}
 	} else {
 		logger.Error(err, "Read request instance error!")
 	}
@@ -194,13 +197,6 @@ func (r *RayClusterReconciler) rayClusterReconcile(ctx context.Context, instance
 
 	// Please do NOT modify `originalRayClusterInstance` in the following code.
 	originalRayClusterInstance := instance.DeepCopy()
-
-	if instance.DeletionTimestamp != nil && !instance.DeletionTimestamp.IsZero() {
-		logger.Info("RayCluster is being deleted, scheduling metric for cleanup")
-		if r.options.RayClusterMetricsManager != nil {
-			r.options.RayClusterMetricsManager.ScheduleRayClusterMetricForCleanup(instance.Name, instance.Namespace)
-		}
-	}
 
 	// The `enableGCSFTRedisCleanup` is a feature flag introduced in KubeRay v1.0.0. It determines whether
 	// the Redis cleanup job should be activated. Users can disable the feature by setting the environment

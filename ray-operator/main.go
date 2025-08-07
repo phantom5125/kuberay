@@ -69,6 +69,7 @@ func main() {
 	var enableBatchScheduler bool
 	var batchScheduler string
 	var enableMetrics bool
+	var metricsTTLSeconds int
 
 	// TODO: remove flag-based config once Configuration API graduates to v1.
 	flag.StringVar(&metricsAddr, "metrics-addr", configapi.DefaultMetricsAddr, "The address the metric endpoint binds to.")
@@ -100,6 +101,7 @@ func main() {
 		"Use Kubernetes proxy subresource when connecting to the Ray Head node.")
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates. E.g. FeatureOne=true,FeatureTwo=false,...")
 	flag.BoolVar(&enableMetrics, "enable-metrics", false, "Enable the emission of control plane metrics.")
+	flag.IntVar(&metricsTTLSeconds, "metrics-ttl-seconds", 300, "The time to live for metrics cleanup in seconds. Default is 300 seconds (5 minutes).")
 
 	opts := k8szap.Options{
 		TimeEncoder: zapcore.ISO8601TimeEncoder,
@@ -237,8 +239,8 @@ func main() {
 	var rayServiceMetricsManager *metrics.RayServiceMetricsManager
 	if config.EnableMetrics {
 		mgrClient := mgr.GetClient()
-		rayClusterMetricsManager = metrics.NewRayClusterMetricsManager(ctx, mgrClient)
-		rayJobMetricsManager = metrics.NewRayJobMetricsManager(ctx, mgrClient)
+		rayClusterMetricsManager = metrics.NewRayClusterMetricsManager(ctx, mgrClient, metricsTTLSeconds)
+		rayJobMetricsManager = metrics.NewRayJobMetricsManager(ctx, mgrClient, metricsTTLSeconds)
 		rayServiceMetricsManager = metrics.NewRayServiceMetricsManager(ctx, mgrClient)
 		ctrlmetrics.Registry.MustRegister(
 			rayClusterMetricsManager,

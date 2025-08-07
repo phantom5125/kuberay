@@ -43,7 +43,7 @@ type RayClusterMetricsManager struct {
 }
 
 // NewRayClusterMetricsManager creates a new RayClusterMetricsManager instance.
-func NewRayClusterMetricsManager(ctx context.Context, client client.Client) *RayClusterMetricsManager {
+func NewRayClusterMetricsManager(ctx context.Context, client client.Client, metricsTTLSeconds int) *RayClusterMetricsManager {
 	manager := &RayClusterMetricsManager{
 		rayClusterProvisionedDurationSeconds: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
@@ -73,7 +73,7 @@ func NewRayClusterMetricsManager(ctx context.Context, client client.Client) *Ray
 		client:       client,
 		log:          ctrl.LoggerFrom(ctx),
 		cleanupQueue: make([]RayClusterMetricCleanupItem, 0),
-		metricTTL:    5 * time.Minute, // Keep metrics for 5 minutes
+		metricTTL:    time.Duration(metricsTTLSeconds) * time.Second,
 	}
 
 	// Start the cleanup goroutine

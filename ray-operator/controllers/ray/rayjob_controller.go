@@ -92,6 +92,10 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 		if errors.IsNotFound(err) {
 			// Request object not found, could have been deleted after reconcile request. Stop reconciliation.
 			logger.Info("RayJob resource not found. Ignoring since object must be deleted")
+			// Schedule metrics cleanup when job reaches terminal status
+			if r.options.RayJobMetricsManager != nil {
+				r.options.RayJobMetricsManager.ScheduleRayJobMetricForCleanup(rayJobInstance.Name, rayJobInstance.Namespace)
+			}
 			return ctrl.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
@@ -465,10 +469,6 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 		return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, err
 	}
 	emitRayJobMetrics(r.options.RayJobMetricsManager, rayJobInstance.Name, rayJobInstance.Namespace, originalRayJobInstance.Status, rayJobInstance.Status)
-	// Schedule metrics cleanup when job reaches terminal status
-	if !rayv1.IsJobDeploymentTerminal(originalRayJobInstance.Status.JobDeploymentStatus) && rayv1.IsJobDeploymentTerminal(rayJobInstance.Status.JobDeploymentStatus) {
-		r.options.RayJobMetricsManager.ScheduleRayJobMetricForCleanup(rayJobInstance.Name, rayJobInstance.Namespace)
-	}
 	return ctrl.Result{RequeueAfter: RayJobDefaultRequeueDuration}, nil
 }
 
