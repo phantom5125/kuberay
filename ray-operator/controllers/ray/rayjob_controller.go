@@ -94,7 +94,7 @@ func (r *RayJobReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			logger.Info("RayJob resource not found. Ignoring since object must be deleted")
 			// Schedule metrics cleanup when job reaches terminal status
 			if r.options.RayJobMetricsManager != nil {
-				r.options.RayJobMetricsManager.ScheduleRayJobMetricForCleanup(rayJobInstance.Name, rayJobInstance.Namespace)
+				r.options.RayJobMetricsManager.ScheduleRayJobMetricForCleanup(request.Name, request.Namespace)
 			}
 			return ctrl.Result{}, nil
 		}

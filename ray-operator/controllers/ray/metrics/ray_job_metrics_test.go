@@ -20,6 +20,8 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 )
 
+var defaultRayJobMetricTTL = 10
+
 func TestMetricRayJobInfo(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -59,7 +61,7 @@ func TestMetricRayJobInfo(t *testing.T) {
 				objs[i] = &tc.rayJobs[i]
 			}
 			client := fake.NewClientBuilder().WithScheme(k8sScheme).WithObjects(objs...).Build()
-			manager := NewRayJobMetricsManager(context.Background(), client)
+			manager := NewRayJobMetricsManager(context.Background(), client, defaultRayJobMetricTTL)
 			reg := prometheus.NewRegistry()
 			reg.MustRegister(manager)
 
@@ -139,7 +141,7 @@ func TestMetricRayJobDeploymentStatus(t *testing.T) {
 				objs[i] = &tc.rayJobs[i]
 			}
 			client := fake.NewClientBuilder().WithScheme(k8sScheme).WithObjects(objs...).Build()
-			manager := NewRayJobMetricsManager(context.Background(), client)
+			manager := NewRayJobMetricsManager(context.Background(), client, defaultRayJobMetricTTL)
 			reg := prometheus.NewRegistry()
 			reg.MustRegister(manager)
 
@@ -196,7 +198,7 @@ func TestScheduleRayJobMetricForCleanup(t *testing.T) {
 	require.NoError(t, rayv1.AddToScheme(k8sScheme))
 	client := fake.NewClientBuilder().WithScheme(k8sScheme).Build()
 	// Create a metrics manager
-	manager := NewRayJobMetricsManager(context.Background(), client)
+	manager := NewRayJobMetricsManager(context.Background(), client, defaultRayJobMetricTTL)
 
 	// Schedule a cleanup for a job
 	manager.ScheduleRayJobMetricForCleanup("test-job", "default")
@@ -218,7 +220,7 @@ func TestCleanupExpiredRayJobMetrics(t *testing.T) {
 	k8sScheme := runtime.NewScheme()
 	require.NoError(t, rayv1.AddToScheme(k8sScheme))
 	client := fake.NewClientBuilder().WithScheme(k8sScheme).Build()
-	manager := NewRayJobMetricsManager(context.Background(), client)
+	manager := NewRayJobMetricsManager(context.Background(), client, defaultRayJobMetricTTL)
 
 	// Register the manager with the registry
 	registry.MustRegister(manager)
@@ -258,7 +260,7 @@ func TestRayJobCleanupLoop(t *testing.T) {
 	k8sScheme := runtime.NewScheme()
 	require.NoError(t, rayv1.AddToScheme(k8sScheme))
 	client := fake.NewClientBuilder().WithScheme(k8sScheme).Build()
-	manager := NewRayJobMetricsManager(context.Background(), client)
+	manager := NewRayJobMetricsManager(context.Background(), client, defaultRayJobMetricTTL)
 
 	// Start the cleanup loop
 	ctx, cancel := context.WithCancel(context.Background())
@@ -292,7 +294,7 @@ func TestRayJobConditionProvisioned(t *testing.T) {
 	k8sScheme := runtime.NewScheme()
 	require.NoError(t, rayv1.AddToScheme(k8sScheme))
 	client := fake.NewClientBuilder().WithScheme(k8sScheme).Build()
-	manager := NewRayJobMetricsManager(context.Background(), client)
+	manager := NewRayJobMetricsManager(context.Background(), client, defaultRayJobMetricTTL)
 	registry.MustRegister(manager)
 
 	// Simulate a job becoming provisioned

@@ -19,6 +19,8 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 )
 
+var defaultRayClusterMetricTTL = 10
+
 func TestRayClusterInfo(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -62,7 +64,7 @@ func TestRayClusterInfo(t *testing.T) {
 				objs[i] = &tc.clusters[i]
 			}
 			client := fake.NewClientBuilder().WithScheme(k8sScheme).WithObjects(objs...).Build()
-			manager := NewRayClusterMetricsManager(context.Background(), client)
+			manager := NewRayClusterMetricsManager(context.Background(), client, defaultRayClusterMetricTTL)
 			reg := prometheus.NewRegistry()
 			reg.MustRegister(manager)
 
@@ -104,7 +106,7 @@ func TestScheduleRayClusterMetricForCleanup(t *testing.T) {
 	require.NoError(t, rayv1.AddToScheme(k8sScheme))
 
 	client := fake.NewClientBuilder().WithScheme(k8sScheme).Build()
-	manager := NewRayClusterMetricsManager(ctx, client)
+	manager := NewRayClusterMetricsManager(ctx, client, defaultRayClusterMetricTTL)
 
 	// Schedule a metric for cleanup
 	manager.ScheduleRayClusterMetricForCleanup("test-cluster", "test-namespace")
@@ -123,7 +125,7 @@ func TestCleanupExpiredRayClusterMetrics(t *testing.T) {
 	require.NoError(t, rayv1.AddToScheme(k8sScheme))
 
 	client := fake.NewClientBuilder().WithScheme(k8sScheme).Build()
-	manager := NewRayClusterMetricsManager(ctx, client)
+	manager := NewRayClusterMetricsManager(ctx, client, defaultRayClusterMetricTTL)
 
 	// Set up a metric
 	manager.ObserveRayClusterProvisionedDuration("expired-cluster", "test-namespace", 123.45)
@@ -166,7 +168,7 @@ func TestRayClusterCleanupLoop(t *testing.T) {
 	require.NoError(t, rayv1.AddToScheme(k8sScheme))
 
 	client := fake.NewClientBuilder().WithScheme(k8sScheme).Build()
-	manager := NewRayClusterMetricsManager(ctx, client)
+	manager := NewRayClusterMetricsManager(ctx, client, defaultRayClusterMetricTTL)
 
 	// Set up a metric
 	manager.ObserveRayClusterProvisionedDuration("test-cluster", "test-namespace", 123.45)
@@ -252,7 +254,7 @@ func TestRayClusterConditionProvisioned(t *testing.T) {
 				objs[i] = &tc.clusters[i]
 			}
 			client := fake.NewClientBuilder().WithScheme(k8sScheme).WithObjects(objs...).Build()
-			manager := NewRayClusterMetricsManager(context.Background(), client)
+			manager := NewRayClusterMetricsManager(context.Background(), client, defaultRayClusterMetricTTL)
 			reg := prometheus.NewRegistry()
 			reg.MustRegister(manager)
 
