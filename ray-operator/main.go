@@ -101,7 +101,7 @@ func main() {
 		"Use Kubernetes proxy subresource when connecting to the Ray Head node.")
 	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates. E.g. FeatureOne=true,FeatureTwo=false,...")
 	flag.BoolVar(&enableMetrics, "enable-metrics", false, "Enable the emission of control plane metrics.")
-	flag.IntVar(&metricsTTLSeconds, "metrics-ttl-seconds", 300, "The time to live for metrics cleanup in seconds. Default is 300 seconds (5 minutes).")
+	flag.IntVar(&metricsTTLSeconds, "metrics-ttl-seconds", configapi.DefaultMetricsTTLSeconds, "The time to live for metrics cleanup in seconds. Default is 300 seconds (5 minutes).")
 
 	opts := k8szap.Options{
 		TimeEncoder: zapcore.ISO8601TimeEncoder,

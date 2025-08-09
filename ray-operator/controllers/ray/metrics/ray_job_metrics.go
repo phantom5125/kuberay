@@ -71,7 +71,7 @@ func NewRayJobMetricsManager(ctx context.Context, client client.Client, metricsT
 	}
 
 	// Start the cleanup goroutine
-	go manager.startRayJobCleanupLoop(ctx)
+	go manager.startRayJobCleanupLoop(ctx, 1*time.Minute)
 	return manager
 }
 
@@ -119,9 +119,9 @@ func (r *RayJobMetricsManager) ScheduleRayJobMetricForCleanup(name, namespace st
 }
 
 // startRayJobCleanupLoop starts a loop to clean up expired RayJob metrics
-func (r *RayJobMetricsManager) startRayJobCleanupLoop(ctx context.Context) {
+func (r *RayJobMetricsManager) startRayJobCleanupLoop(ctx context.Context, cleanupInterval time.Duration) {
 	// Check for expired metrics every minute
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(cleanupInterval)
 	defer ticker.Stop()
 
 	for {

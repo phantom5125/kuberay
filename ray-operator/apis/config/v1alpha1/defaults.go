@@ -10,6 +10,7 @@ const (
 	DefaultProbeAddr            = ":8082"
 	DefaultEnableLeaderElection = true
 	DefaultReconcileConcurrency = 1
+	DefaultMetricsTTLSeconds    = 300
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {

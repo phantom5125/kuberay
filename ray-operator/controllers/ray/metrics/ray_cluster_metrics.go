@@ -77,7 +77,7 @@ func NewRayClusterMetricsManager(ctx context.Context, client client.Client, metr
 	}
 
 	// Start the cleanup goroutine
-	go manager.startRayClusterCleanupLoop(ctx)
+	go manager.startRayClusterCleanupLoop(ctx, 1*time.Minute)
 	return manager
 }
 
@@ -125,9 +125,9 @@ func (r *RayClusterMetricsManager) ScheduleRayClusterMetricForCleanup(name, name
 }
 
 // startRayClusterCleanupLoop starts a loop to clean up expired RayCluster metrics
-func (r *RayClusterMetricsManager) startRayClusterCleanupLoop(ctx context.Context) {
+func (r *RayClusterMetricsManager) startRayClusterCleanupLoop(ctx context.Context, cleanupInterval time.Duration) {
 	// Check for expired metrics every minute
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(cleanupInterval)
 	defer ticker.Stop()
 
 	for {
